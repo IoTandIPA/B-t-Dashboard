@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚓ Båtdashboard – Arendal</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #06101e;
+      --surface: #0d1e35;
+      --card: #0f2340;
+      --border: #1a3a5c;
+      --accent: #00c8ff;
+      --text: #e2eef7;
+      --muted: #7aa3be;
+      --success: #00d97e;
+      --warning: #ffb700;
+      --danger: #ff4b55;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 15% 15%, rgba(0,119,182,0.10) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 85%, rgba(0,200,255,0.06) 0%, transparent 55%);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 2.5rem;
+    }
+
+    /* ── HEADER ───────────────────────────── */
+    header {
+      background: rgba(13,30,53,0.96);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      gap: 1rem;
+    }
+    .hdr-logo { font-size: 1.2rem; font-weight: 800; color: var(--accent); white-space: nowrap; }
+    .hdr-loc  { text-align: center; }
+    .hdr-loc h1 { font-size: 1rem; font-weight: 600; }
+    .hdr-loc .coords { font-size: 0.7rem; color: var(--muted); }
+    .hdr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
+    #clock { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+    #last-upd { font-size: 0.7rem; color: var(--muted); }
+    .refresh-btn {
+      margin-top: 0.25rem;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.3rem 0.65rem;
+      border-radius: 7px; cursor: pointer; font-size: 0.75rem;
+      display: flex; align-items: center; gap: 0.35rem;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .refresh-btn.spin svg { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── MAIN LAYOUT ──────────────────────── */
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.25rem 1.25rem;
+      display: grid;
+      gap: 1.15rem;
+    }
+
+    /* ── RECOMMENDATION ───────────────────── */
+    .rec-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .traffic-light {
+      width: 58px; height: 58px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.7rem; flex-shrink: 0;
+      border: 2px solid transparent;
+      transition: all 0.4s;
+    }
+    .tl-green  { color: var(--success); background: rgba(0,217,126,0.12); border-color: var(--success); box-shadow: 0 0 18px rgba(0,217,126,0.35); }
+    .tl-yellow { color: var(--warning); background: rgba(255,183,0,0.12);  border-color: var(--warning); box-shadow: 0 0 18px rgba(255,183,0,0.35); }
+    .tl-red    { color: var(--danger);  background: rgba(255,75,85,0.12);  border-color: var(--danger);  box-shadow: 0 0 18px rgba(255,75,85,0.35); }
+    .tl-loading { color: var(--muted); background: rgba(122,163,190,0.08); border-color: var(--border); }
+    .rec-text h2  { font-size: 1.15rem; margin-bottom: 0.3rem; }
+    .rec-text p   { color: var(--muted); font-size: 0.85rem; }
+    .rec-stats {
+      margin-left: auto;
+      display: flex; gap: 1.5rem;
+    }
+    .rec-stat { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; }
+    .rec-stat .val { font-size: 1.25rem; font-weight: 700; }
+    .rec-stat .lbl { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── CARDS GRID ───────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.15rem 1.1rem;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: rgba(0,200,255,0.5); }
+    .card-ico { font-size: 1.4rem; margin-bottom: 0.6rem; }
+    .card-val { font-size: 1.7rem; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 0.3rem; }
+    .card-lbl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .card-sub { font-size: 0.82rem; color: var(--text); margin-top: 0.45rem; }
+
+    /* Beaufort bar */
+    .bf-bar { display: flex; gap: 2px; margin-top: 0.6rem; }
+    .bf-seg { height: 6px; flex: 1; border-radius: 2px; background: var(--border); }
+    .bf-seg.on-ok   { background: var(--accent); }
+    .bf-seg.on-warn { background: var(--warning); }
+    .bf-seg.on-bad  { background: var(--danger); }
+
+    /* ── CHART CARDS ──────────────────────── */
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.4rem 1.5rem;
+    }
+    .chart-card h3 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .chart-wrap { position: relative; height: 195px; }
+
+    /* Tide events row */
+    .tide-events {
+      display: flex; gap: 1.75rem; margin-bottom: 1rem; flex-wrap: wrap;
+    }
+    .tide-ev { display: flex; flex-direction: column; gap: 0.15rem; }
+    .tide-ev .ev-lbl { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; }
+    .tide-ev .ev-time { font-size: 0.95rem; font-weight: 600; }
+    .tide-ev .ev-val  { font-size: 0.78rem; color: var(--muted); }
+
+    /* Wave detail grid */
+    .wave-details {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .wd-item { background: var(--surface); border-radius: 8px; padding: 0.55rem 0.75rem; }
+    .wd-lbl  { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; }
+    .wd-val  { font-size: 0.92rem; font-weight: 600; margin-top: 0.15rem; }
+
+    /* ── FORECAST ─────────────────────────── */
+    .forecast-wrap {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+    }
+    .fc-day {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 0.75rem;
+      text-align: center;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 0.45rem;
+    }
+    .fc-name { font-size: 0.72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+    .fc-ico  { font-size: 1.7rem; }
+    .fc-temp { font-size: 1.05rem; font-weight: 700; }
+    .fc-temp .lo { color: var(--muted); font-weight: 400; font-size: 0.88rem; }
+    .fc-wind { font-size: 0.75rem; color: var(--muted); }
+    .fc-rain { font-size: 0.75rem; color: #5fa8d3; }
+
+    /* ── 2-COLUMN ─────────────────────────── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.15rem;
+    }
+
+    /* Sun/Moon */
+    .sun-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+    }
+    .sun-row {
+      display: flex; align-items: center;
+      gap: 0.65rem; padding: 0.7rem 0.75rem;
+      background: var(--surface); border-radius: 10px;
+    }
+    .sun-row .ico { font-size: 1.3rem; }
+    .sun-row .lbl { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; }
+    .sun-row .val { font-size: 0.95rem; font-weight: 600; margin-top: 0.1rem; }
+
+    /* Links */
+    .links-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: 0.6rem;
+    }
+    a.link-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 0.6rem 0.8rem;
+      text-decoration: none;
+      color: var(--text);
+      font-size: 0.8rem;
+      display: flex; align-items: center; gap: 0.5rem;
+      transition: all 0.18s;
+    }
+    a.link-card:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.7;
+    }
+
+    /* ── RESPONSIVE ───────────────────────── */
+    @media (max-width: 760px) {
+      .two-col { grid-template-columns: 1fr; }
+      .forecast-wrap { grid-template-columns: repeat(3, 1fr); }
+      .rec-stats { margin-left: 0; width: 100%; justify-content: center; }
+    }
+    @media (max-width: 480px) {
+      .forecast-wrap { grid-template-columns: repeat(2, 1fr); }
+      .cards-grid { grid-template-columns: repeat(2, 1fr); }
+      .links-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────────── -->
+<header>
+  <div class="hdr-logo">⚓ Båtdashboard</div>
+  <div class="hdr-loc">
+    <h1>📍 Arendal</h1>
+    <div class="coords">58.461°N  8.772°Ø</div>
+  </div>
+  <div class="hdr-right">
+    <span id="clock">--:--</span>
+    <span id="last-upd">Laster...</span>
+    <button class="refresh-btn" id="refresh-btn" onclick="loadAll()">
+      <svg id="refresh-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M1 4v6h6M23 20v-6h-6"/>
+        <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+      </svg>
+      Oppdater
+    </button>
+  </div>
+</header>
+
+<!-- ─── MAIN ─────────────────────────────────── -->
+<main>
+
+  <!-- ANBEFALING -->
+  <div class="rec-panel">
+    <div class="traffic-light tl-loading" id="tl">⚓</div>
+    <div class="rec-text">
+      <h2 id="rec-title">Henter data…</h2>
+      <p  id="rec-desc">Vent litt mens vi laster vær og sjøforhold</p>
+    </div>
+    <div class="rec-stats">
+      <div class="rec-stat">
+        <span class="val" id="rec-wind">–</span>
+        <span class="lbl">m/s vind</span>
+      </div>
+      <div class="rec-stat">
+        <span class="val" id="rec-wave">–</span>
+        <span class="lbl">m bølger</span>
+      </div>
+      <div class="rec-stat">
+        <span class="val" id="rec-bf">–</span>
+        <span class="lbl">Beaufort</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- NÅVÆRENDE FORHOLD -->
+  <div class="cards-grid">
+
+    <div class="card">
+      <div class="card-ico">🌡️</div>
+      <div class="card-val" id="c-temp">–</div>
+      <div class="card-lbl">Lufttemperatur</div>
+      <div class="card-sub" id="c-humid">–</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">💨</div>
+      <div class="card-val" id="c-wind">–</div>
+      <div class="card-lbl" id="c-bf-lbl">Vind</div>
+      <div class="card-sub" id="c-wdir">–</div>
+      <div class="bf-bar" id="bf-bar"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">🌊</div>
+      <div class="card-val" id="c-wave">–</div>
+      <div class="card-lbl">Bølgehøyde</div>
+      <div class="card-sub" id="c-wave-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">🌡️</div>
+      <div class="card-val" id="c-sst">–</div>
+      <div class="card-lbl">Vanntemperatur</div>
+      <div class="card-sub">Sjøoverflate</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">🌧️</div>
+      <div class="card-val" id="c-rain">–</div>
+      <div class="card-lbl">Nedbør (1t)</div>
+      <div class="card-sub" id="c-symbol">–</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">🔵</div>
+      <div class="card-val" id="c-pres">–</div>
+      <div class="card-lbl">Trykk (hPa)</div>
+      <div class="card-sub" id="c-pres-trend">–</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">☁️</div>
+      <div class="card-val" id="c-cloud">–</div>
+      <div class="card-lbl">Skydekke</div>
+      <div class="card-sub" id="c-vis">–</div>
+    </div>
+
+    <div class="card">
+      <div class="card-ico">💦</div>
+      <div class="card-val" id="c-gust">–</div>
+      <div class="card-lbl">Vindkast</div>
+      <div class="card-sub">Maks m/s</div>
+    </div>
+
+  </div>
+
+  <!-- TIDVANNSGRAF -->
+  <div class="chart-card">
+    <h3>🌊 Tidevann – neste 24 timer</h3>
+    <div class="tide-events" id="tide-events">
+      <span style="color:var(--muted);font-size:0.82rem">Laster tidevannsdata…</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="tideChart"></canvas>
+    </div>
+  </div>
+
+  <!-- BØLGEGRAF -->
+  <div class="chart-card">
+    <h3>🌊 Bølgeprognose – neste 48 timer</h3>
+    <div class="wave-details">
+      <div class="wd-item"><div class="wd-lbl">Bølgeperiode</div><div class="wd-val" id="wd-period">–</div></div>
+      <div class="wd-item"><div class="wd-lbl">Bølgeretning</div><div class="wd-val" id="wd-dir">–</div></div>
+      <div class="wd-item"><div class="wd-lbl">Dønning</div><div class="wd-val" id="wd-swell">–</div></div>
+      <div class="wd-item"><div class="wd-lbl">Dønningsperiode</div><div class="wd-val" id="wd-swper">–</div></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="waveChart"></canvas>
+    </div>
+  </div>
+
+  <!-- 5-DAGERS PROGNOSE -->
+  <div class="chart-card">
+    <h3>📅 5-dagers prognose</h3>
+    <div class="forecast-wrap" id="forecast-wrap">
+      <span style="color:var(--muted);font-size:0.82rem">Laster prognose…</span>
+    </div>
+  </div>
+
+  <!-- SOL / MÅNE  +  LENKER -->
+  <div class="two-col">
+
+    <div class="chart-card">
+      <h3>☀️ Sol &amp; Måne</h3>
+      <div class="sun-grid">
+        <div class="sun-row"><span class="ico">🌅</span><div><div class="lbl">Soloppgang</div><div class="val" id="sunrise">–</div></div></div>
+        <div class="sun-row"><span class="ico">🌇</span><div><div class="lbl">Solnedgang</div><div class="val" id="sunset">–</div></div></div>
+        <div class="sun-row"><span class="ico">⏱️</span><div><div class="lbl">Daglengde</div><div class="val" id="daylen">–</div></div></div>
+        <div class="sun-row"><span class="ico">🌙</span><div><div class="lbl">Månefase</div><div class="val" id="moonphase">–</div></div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>🔗 Nyttige lenker</h3>
+      <div class="links-grid">
+        <a class="link-card" href="https://www.kartverket.no/sehavniva" target="_blank">🗺️ Se Havnivå</a>
+        <a class="link-card" href="https://www.yr.no/nb/v%C3%A6rvarsel/daglig-tabell/1-92717" target="_blank">⛅ Yr Arendal</a>
+        <a class="link-card" href="https://openseamap.org/#map=12/58.461/8.772" target="_blank">⚓ OpenSeaMap</a>
+        <a class="link-card" href="https://www.windy.com/?waves,58.461,8.772,9" target="_blank">🌊 Windy bølger</a>
+        <a class="link-card" href="https://kystinfo.no" target="_blank">🚢 Kystinfo / AIS</a>
+        <a class="link-card" href="https://www.yr.no/nb/v%C3%A6rvarsel/time-for-time/1-92717" target="_blank">🕐 Yr time-for-time</a>
+        <a class="link-card" href="https://www.havvarsel.no" target="_blank">🌡️ HavVarsel</a>
+        <a class="link-card" href="https://www.barentswatch.no/havvarsel/" target="_blank">📡 BarentsWatch</a>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<footer>
+  Data fra: <strong>MET Norway / Yr</strong> · <strong>Kartverket Sehavnivå</strong> · <strong>Open-Meteo Marine</strong> · <strong>SunriseSunset.io</strong><br>
+  Oppdateres automatisk hvert 30. minutt &nbsp;·&nbsp; Kildekode på GitHub Pages
+</footer>
+
+<!-- ─── JAVASCRIPT ────────────────────────────── -->
+<script>
+/* ============================================================
+   CONFIG
+   ============================================================ */
+const LAT  = 58.461;
+const LON  = 8.772;
+const AUTO_REFRESH = 30 * 60 * 1000; // 30 min
+
+let tideChart = null;
+let waveChart = null;
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+function fmtTime(date) {
+  return date.toLocaleTimeString('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' });
+}
+
+function to24h(s) {
+  // Converts "6:13:55 AM" → "06:13"
+  if (!s) return '--:--';
+  const [time, period] = s.split(' ');
+  let [h, m] = time.split(':');
+  h = parseInt(h);
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2,'0')}:${m}`;
+}
+
+function beaufort(ws) {
+  if (ws <  0.3) return { bf: 0,  name: 'Stille',         cls: 'on-ok'  };
+  if (ws <  1.6) return { bf: 1,  name: 'Flau vind',      cls: 'on-ok'  };
+  if (ws <  3.4) return { bf: 2,  name: 'Svak vind',      cls: 'on-ok'  };
+  if (ws <  5.5) return { bf: 3,  name: 'Lett bris',      cls: 'on-ok'  };
+  if (ws <  8.0) return { bf: 4,  name: 'Laber bris',     cls: 'on-ok'  };
+  if (ws < 10.8) return { bf: 5,  name: 'Frisk bris',     cls: 'on-warn'};
+  if (ws < 13.9) return { bf: 6,  name: 'Liten kuling',   cls: 'on-warn'};
+  if (ws < 17.2) return { bf: 7,  name: 'Stiv kuling',    cls: 'on-bad' };
+  if (ws < 20.8) return { bf: 8,  name: 'Sterk kuling',   cls: 'on-bad' };
+  if (ws < 24.5) return { bf: 9,  name: 'Liten storm',    cls: 'on-bad' };
+  if (ws < 28.5) return { bf: 10, name: 'Full storm',     cls: 'on-bad' };
+  if (ws < 32.7) return { bf: 11, name: 'Sterk storm',    cls: 'on-bad' };
+  return            { bf: 12, name: 'Orkan',          cls: 'on-bad' };
+}
+
+function windDir(deg) {
+  const d = ['N','NNØ','NØ','ØNØ','Ø','ØSØ','SØ','SSØ','S','SSV','SV','VSV','V','VNV','NV','NNV'];
+  return d[Math.round(deg / 22.5) % 16];
+}
+
+const SYM = {
+  clearsky:'☀️', fair:'🌤️', partlycloudy:'⛅', cloudy:'☁️',
+  fog:'🌫️', lightrain:'🌦️', rain:'🌧️', heavyrain:'🌧️',
+  lightrainshowers:'🌦️', rainshowers:'🌦️', heavyrainshowers:'🌧️',
+  lightsleet:'🌨️', sleet:'🌨️', heavysleet:'🌨️',
+  lightsnow:'❄️', snow:'❄️', heavysnow:'❄️',
+  rainandthunder:'⛈️', sleetandthunder:'⛈️', snowandthunder:'⛈️',
+  lightrainshowersandthunder:'⛈️', heavyrainshowersandthunder:'⛈️',
+};
+
+function sym2emoji(code) {
+  if (!code) return '🌡️';
+  const base = code.replace(/_day|_night|_polartwilight/g, '');
+  for (const [k,v] of Object.entries(SYM)) {
+    if (base.includes(k)) return v;
+  }
+  return '🌡️';
+}
+
+function dayLabel(d) {
+  const n = new Date(); n.setHours(0,0,0,0);
+  const t = new Date(d); t.setHours(0,0,0,0);
+  if (t.getTime() === n.getTime()) return 'I dag';
+  n.setDate(n.getDate()+1);
+  if (t.getTime() === n.getTime()) return 'I morgen';
+  return ['Søn','Man','Tir','Ons','Tor','Fre','Lør'][d.getDay()];
+}
+
+function bfColor(cls) {
+  if (cls === 'on-ok')   return 'var(--accent)';
+  if (cls === 'on-warn') return 'var(--warning)';
+  return 'var(--danger)';
+}
+
+function renderBfBar(bf) {
+  const bar = document.getElementById('bf-bar');
+  bar.innerHTML = '';
+  for (let i = 0; i <= 12; i++) {
+    const s = document.createElement('div');
+    s.className = 'bf-seg';
+    if (i <= bf) {
+      s.classList.add(bf <= 4 ? 'on-ok' : bf <= 6 ? 'on-warn' : 'on-bad');
+    }
+    bar.appendChild(s);
+  }
+}
+
+/* ============================================================
+   RECOMMENDATION PANEL
+   ============================================================ */
+function updateRec(ws, wh) {
+  const tl = document.getElementById('tl');
+  document.getElementById('rec-wind').textContent = ws != null ? ws.toFixed(1) : '–';
+  document.getElementById('rec-wave').textContent = wh != null ? wh.toFixed(1) : '–';
+  const b = ws != null ? beaufort(ws) : null;
+  document.getElementById('rec-bf').textContent = b ? b.bf : '–';
+
+  tl.className = 'traffic-light';
+  if (!ws) return;
+
+  if (ws > 15 || (wh != null && wh > 1.5)) {
+    tl.classList.add('tl-red'); tl.textContent = '⛔';
+    document.getElementById('rec-title').textContent = 'Ikke anbefalt å dra ut';
+    document.getElementById('rec-title').style.color = 'var(--danger)';
+    document.getElementById('rec-desc').textContent =
+      `${ws > 15 ? `Sterk vind: ${ws.toFixed(1)} m/s (${b?.name}). ` : ''}${wh > 1.5 ? `Høye bølger: ${wh.toFixed(1)} m.` : ''}`;
+  } else if (ws > 10 || (wh != null && wh > 0.8)) {
+    tl.classList.add('tl-yellow'); tl.textContent = '⚠️';
+    document.getElementById('rec-title').textContent = 'Mulig – men vær forsiktig';
+    document.getElementById('rec-title').style.color = 'var(--warning)';
+    document.getElementById('rec-desc').textContent =
+      `${ws > 10 ? `Kuling: ${ws.toFixed(1)} m/s (${b?.name}). ` : ''}${wh > 0.8 ? `Moderat sjø: ${wh.toFixed(1)} m. ` : ''}Hold deg nær land.`;
+  } else {
+    tl.classList.add('tl-green'); tl.textContent = '✅';
+    document.getElementById('rec-title').textContent = 'Gode forhold – God tur!';
+    document.getElementById('rec-title').style.color = 'var(--success)';
+    document.getElementById('rec-desc').textContent =
+      `${b?.name} (${ws.toFixed(1)} m/s)${wh != null ? `, sjø ${wh.toFixed(1)} m` : ''}. Fine forhold for båttur.`;
+  }
+}
+
+/* ============================================================
+   API 1 — MET Norway / Yr
+   ============================================================ */
+async function fetchWeather() {
+  const r = await fetch(
+    `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${LAT}&lon=${LON}`,
+    { headers: { 'Accept': 'application/json' } }
+  );
+  if (!r.ok) throw new Error('MET: ' + r.status);
+  return r.json();
+}
+
+function processWeather(data) {
+  const ts = data.properties.timeseries;
+  const now = ts[0].data.instant.details;
+
+  const temp  = now.air_temperature;
+  const ws    = now.wind_speed;
+  const wd    = now.wind_from_direction;
+  const gust  = now.wind_speed_of_gust;
+  const hum   = now.relative_humidity;
+  const pres  = now.air_pressure_at_sea_level;
+  const cloud = now.cloud_area_fraction;
+  const sym   = ts[0].data.next_1_hours?.summary?.symbol_code
+              || ts[0].data.next_6_hours?.summary?.symbol_code;
+  const prec  = ts[0].data.next_1_hours?.details?.precipitation_amount ?? 0;
+
+  const b = beaufort(ws);
+
+  // Cards
+  document.getElementById('c-temp').textContent  = `${Math.round(temp)}°C`;
+  document.getElementById('c-humid').textContent = `Luftfukt: ${Math.round(hum)}%`;
+  document.getElementById('c-wind').textContent  = `${ws.toFixed(1)}`;
+  document.getElementById('c-wind').style.color  = bfColor(b.cls);
+  document.getElementById('c-bf-lbl').textContent= `${b.name} · Bf ${b.bf}`;
+  document.getElementById('c-wdir').textContent  = `${windDir(wd)} (${Math.round(wd)}°)`;
+  renderBfBar(b.bf);
+  document.getElementById('c-rain').textContent  = `${prec.toFixed(1)} mm`;
+  document.getElementById('c-symbol').textContent= sym2emoji(sym) + ' ' + (sym?.replace(/_day|_night|_polartwilight/g,'') || '');
+  document.getElementById('c-pres').textContent  = `${Math.round(pres)}`;
+  document.getElementById('c-cloud').textContent = `${Math.round(cloud)}%`;
+  if (gust != null) document.getElementById('c-gust').textContent = `${gust.toFixed(1)}`;
+
+  // Pressure trend (compare 3 h earlier)
+  if (ts.length > 3) {
+    const old = ts[3]?.data?.instant?.details?.air_pressure_at_sea_level;
+    if (old) {
+      const d = pres - old;
+      document.getElementById('c-pres-trend').textContent =
+        d > 0.5 ? '↑ Stigende' : d < -0.5 ? '↓ Fallende' : '→ Stabilt';
+    }
+  }
+
+  // 5-day forecast
+  const daily = {};
+  for (const e of ts) {
+    const key = new Date(e.time).toDateString();
+    if (!daily[key]) daily[key] = { date: new Date(e.time), temps:[], winds:[], syms:[], rain:0 };
+    daily[key].temps.push(e.data.instant.details.air_temperature);
+    daily[key].winds.push(e.data.instant.details.wind_speed);
+    if (e.data.next_6_hours?.summary?.symbol_code) daily[key].syms.push(e.data.next_6_hours.summary.symbol_code);
+    if (e.data.next_6_hours?.details?.precipitation_amount) daily[key].rain += e.data.next_6_hours.details.precipitation_amount;
+  }
+
+  const days = Object.values(daily).slice(0, 5);
+  document.getElementById('forecast-wrap').innerHTML = days.map(d => {
+    const hi  = Math.round(Math.max(...d.temps));
+    const lo  = Math.round(Math.min(...d.temps));
+    const aw  = (d.winds.reduce((a,b)=>a+b,0)/d.winds.length).toFixed(1);
+    const ico = sym2emoji(d.syms[Math.floor(d.syms.length/2)] || d.syms[0]);
+    const bff = beaufort(parseFloat(aw));
+    return `<div class="fc-day">
+      <div class="fc-name">${dayLabel(d.date)}</div>
+      <div class="fc-ico">${ico}</div>
+      <div class="fc-temp">${hi}° <span class="lo">${lo}°</span></div>
+      <div class="fc-wind" style="color:${bfColor(bff.cls)}">${aw} m/s</div>
+      ${d.rain > 0.2 ? `<div class="fc-rain">💧 ${d.rain.toFixed(1)} mm</div>` : ''}
+    </div>`;
+  }).join('');
+
+  return ws;
+}
+
+/* ============================================================
+   API 2 — Open-Meteo Marine
+   ============================================================ */
+async function fetchMarine() {
+  const url = `https://marine-api.open-meteo.com/v1/marine?` +
+    `latitude=${LAT}&longitude=${LON}` +
+    `&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature` +
+    `&timezone=Europe%2FOslo&forecast_days=5`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Marine: ' + r.status);
+  return r.json();
+}
+
+function processMarine(data) {
+  const now   = new Date();
+  const times = data.hourly.time.map(t => new Date(t));
+  let ni = 0, best = Infinity;
+  times.forEach((t,i)=>{ const d=Math.abs(t-now); if(d<best){best=d;ni=i;} });
+
+  const wh  = data.hourly.wave_height[ni]           ?? 0;
+  const wp  = data.hourly.wave_period[ni]           ?? 0;
+  const wdir= data.hourly.wave_direction[ni]        ?? 0;
+  const sh  = data.hourly.swell_wave_height[ni]     ?? 0;
+  const sp  = data.hourly.swell_wave_period[ni]     ?? 0;
+  const sst = data.hourly.sea_surface_temperature?.[ni];
+
+  const wc = wh > 1.5 ? 'var(--danger)' : wh > 0.8 ? 'var(--warning)' : 'var(--accent)';
+  document.getElementById('c-wave').textContent     = `${wh.toFixed(1)} m`;
+  document.getElementById('c-wave').style.color     = wc;
+  document.getElementById('c-wave-sub').textContent = `Periode: ${wp.toFixed(0)}s · ${windDir(wdir)}`;
+  document.getElementById('wd-period').textContent  = `${wp.toFixed(1)} s`;
+  document.getElementById('wd-dir').textContent     = `${windDir(wdir)} (${Math.round(wdir)}°)`;
+  document.getElementById('wd-swell').textContent   = `${sh.toFixed(2)} m`;
+  document.getElementById('wd-swper').textContent   = `${sp.toFixed(1)} s`;
+  document.getElementById('c-sst').textContent      = sst != null ? `${sst.toFixed(1)}°C` : '–';
+
+  // Wave chart (48h)
+  const e = Math.min(ni + 48, times.length);
+  renderWaveChart(times.slice(ni, e), data.hourly.wave_height.slice(ni, e), data.hourly.swell_wave_height.slice(ni, e));
+
+  return wh;
+}
+
+function renderWaveChart(times, waves, swell) {
+  const ctx = document.getElementById('waveChart').getContext('2d');
+  if (waveChart) waveChart.destroy();
+  waveChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: times.map(t => fmtTime(t)),
+      datasets: [
+        { label: 'Bølgehøyde (m)', data: waves, borderColor:'#00c8ff', backgroundColor:'rgba(0,200,255,0.14)', fill:true, tension:0.4, borderWidth:2, pointRadius:0 },
+        { label: 'Dønning (m)',   data: swell, borderColor:'rgba(0,119,182,0.75)', backgroundColor:'rgba(0,119,182,0.04)', fill:true, tension:0.4, borderWidth:1.5, borderDash:[5,5], pointRadius:0 }
+      ]
+    },
+    options: chartOpts('m', 12)
+  });
+}
+
+/* ============================================================
+   API 3 — Kartverket Sehavnivå (tidevann)
+   ============================================================ */
+async function fetchTide() {
+  const now  = new Date();
+  const from = new Date(now); from.setHours(0,0,0,0);
+  const to   = new Date(from); to.setDate(to.getDate() + 2);
+
+  const fmtDt = d =>
+    d.toLocaleString('sv-SE', { timeZone:'Europe/Oslo' })
+     .replace(' ','T').slice(0,16);
+
+  const base = `https://api.sehavniva.no/tideapi.php?` +
+    `lat=${LAT}&lon=${LON}&fromtime=${encodeURIComponent(fmtDt(from))}` +
+    `&totime=${encodeURIComponent(fmtDt(to))}` +
+    `&datatype=PRE&refcode=CD&lang=nb&interval=10&dst=1&tzone=1&tide_request=locationdata`;
+
+  // Try direct, then CORS proxy fallback
+  let xml;
+  try {
+    const r = await fetch(base);
+    xml = await r.text();
+    if (!xml.includes('<waterlevel')) throw new Error('empty');
+  } catch {
+    const r2 = await fetch('https://corsproxy.io/?' + encodeURIComponent(base));
+    xml = await r2.text();
+  }
+  return xml;
+}
+
+function parseTide(xml) {
+  const doc    = new DOMParser().parseFromString(xml, 'text/xml');
+  const nodes  = doc.querySelectorAll('waterlevel');
+  const times  = [], values = [];
+  nodes.forEach(n => {
+    const t = new Date(n.getAttribute('time'));
+    const v = parseFloat(n.getAttribute('value'));
+    if (!isNaN(v)) { times.push(t); values.push(v / 100); }
+  });
+  return { times, values };
+}
+
+function findExtrema(times, values) {
+  const W = 8; // ~80 min window
+  const res = [];
+  for (let i = W; i < values.length - W; i++) {
+    const win = values.slice(i - W, i + W + 1);
+    if (values[i] === Math.max(...win)) res.push({ time: times[i], value: values[i], type: 'high' });
+    else if (values[i] === Math.min(...win)) res.push({ time: times[i], value: values[i], type: 'low' });
+  }
+  return res;
+}
+
+function renderTideChart(times, values) {
+  const ctx = document.getElementById('tideChart').getContext('2d');
+  if (tideChart) tideChart.destroy();
+
+  const now   = new Date();
+  const limit = new Date(now.getTime() + 24 * 3600 * 1000);
+  const pairs = times.map((t,i)=>({t,v:values[i]})).filter(x=>x.t>=now && x.t<=limit);
+
+  tideChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: pairs.map(x => fmtTime(x.t)),
+      datasets: [{
+        label: 'Vannstand (m)',
+        data: pairs.map(x => x.v),
+        borderColor: '#0096c7',
+        backgroundColor: ctx2 => {
+          const {ctx: c, chartArea} = ctx2.chart;
+          if (!chartArea) return 'rgba(0,150,199,0.25)';
+          const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          g.addColorStop(0, 'rgba(0,150,199,0.45)');
+          g.addColorStop(1, 'rgba(0,150,199,0.03)');
+          return g;
+        },
+        fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 0
+      }]
+    },
+    options: chartOpts('m', 12, v => `${v.toFixed(2)} m`)
+  });
+
+  // Tide events display
+  const extrema  = findExtrema(times, values).filter(e => e.time >= now).slice(0, 5);
+  document.getElementById('tide-events').innerHTML = extrema.map(e =>
+    `<div class="tide-ev">
+      <span class="ev-lbl">${e.type==='high'?'⬆️ Høyvann':'⬇️ Lavvann'}</span>
+      <span class="ev-time">${fmtTime(e.time)}</span>
+      <span class="ev-val">${e.value.toFixed(2)} m</span>
+    </div>`
+  ).join('');
+}
+
+/* ============================================================
+   CHART OPTIONS FACTORY
+   ============================================================ */
+function chartOpts(unit = '', maxTicks = 12, yCb = null) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#7aa3be', font: { size: 11 } } },
+      tooltip: {
+        mode: 'index', intersect: false,
+        backgroundColor: 'rgba(13,31,60,0.95)',
+        titleColor: '#e2eef7', bodyColor: '#8eb8d4',
+        borderColor: '#1a3a5c', borderWidth: 1,
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#7aa3be', maxTicksLimit: maxTicks, font: { size: 10 } },
+        grid:  { color: 'rgba(26,58,92,0.45)' }
+      },
+      y: {
+        ticks: { color: '#7aa3be', font: { size: 10 }, callback: yCb || (v => `${v} ${unit}`) },
+        grid:  { color: 'rgba(26,58,92,0.45)' },
+        min: 0
+      }
+    }
+  };
+}
+
+/* ============================================================
+   API 4 — SunriseSunset.io
+   ============================================================ */
+async function fetchSun() {
+  const r = await fetch(`https://api.sunrisesunset.io/json?lat=${LAT}&lng=${LON}&timezone=Europe/Oslo`);
+  const d = await r.json();
+  if (d.status !== 'OK') return;
+  document.getElementById('sunrise').textContent = to24h(d.results.sunrise);
+  document.getElementById('sunset').textContent  = to24h(d.results.sunset);
+  // day_length from API is like "15:42:00"
+  const dl = d.results.day_length;
+  if (dl) {
+    const parts = dl.split(':');
+    document.getElementById('daylen').textContent = `${parts[0]}t ${parts[1]}m`;
+  }
+}
+
+/* ============================================================
+   MOON PHASE (client-side)
+   ============================================================ */
+function moonPhase() {
+  const knownNew = new Date('2024-01-11T11:58:00Z');
+  const diffDays = (new Date() - knownNew) / 86400000;
+  const phase    = ((diffDays % 29.53) + 29.53) % 29.53;
+  const phases   = [
+    [1.85,  '🌑', 'Nymåne'],
+    [7.38,  '🌒', 'Voksende'],
+    [9.22,  '🌓', 'Første kvartal'],
+    [12.92, '🌔', 'Voksende gibbøs'],
+    [14.77, '🌕', 'Fullmåne'],
+    [18.46, '🌖', 'Minkende gibbøs'],
+    [20.31, '🌗', 'Tredje kvartal'],
+    [24.00, '🌘', 'Minkende'],
+  ];
+  const [,ico,name] = phases.find(([l]) => phase < l) || [0,'🌑','Nymåne'];
+  document.getElementById('moonphase').textContent = `${ico} ${name}`;
+}
+
+/* ============================================================
+   CLOCK
+   ============================================================ */
+function tick() {
+  document.getElementById('clock').textContent = fmtTime(new Date());
+}
+
+/* ============================================================
+   MASTER LOAD
+   ============================================================ */
+let pendingWind = null, pendingWave = null;
+
+async function loadAll() {
+  const btn = document.getElementById('refresh-btn');
+  const ico = document.getElementById('refresh-ico');
+  btn.classList.add('spin');
+  pendingWind = null; pendingWave = null;
+
+  const jobs = await Promise.allSettled([
+    fetchWeather().then(d => { pendingWind = processWeather(d); }),
+    fetchMarine().then(d  => { pendingWave = processMarine(d);  }),
+    fetchTide().then(xml  => { const {times,values}=parseTide(xml); renderTideChart(times,values); }),
+    fetchSun(),
+  ]);
+
+  jobs.forEach((j,i) => {
+    if (j.status === 'rejected') console.warn(`API slot ${i} feilet:`, j.reason);
+  });
+
+  // Recommendation — update after all parallel data is in
+  updateRec(pendingWind, pendingWave);
+  moonPhase();
+
+  document.getElementById('last-upd').textContent =
+    'Sist oppdatert: ' + fmtTime(new Date());
+  btn.classList.remove('spin');
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  tick();
+  setInterval(tick, 1000);
+  loadAll();
+  setInterval(loadAll, AUTO_REFRESH);
+});
+</script>
+</body>
+</html>
