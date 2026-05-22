@@ -712,22 +712,32 @@ async function fetchTide() {
     d.toLocaleString('sv-SE', { timeZone:'Europe/Oslo' })
      .replace(' ','T').slice(0,16);
 
-  const base = `https://api.sehavniva.no/tideapi.php?` +
-    `lat=${LAT}&lon=${LON}&fromtime=${encodeURIComponent(fmtDt(from))}` +
-    `&totime=${encodeURIComponent(fmtDt(to))}` +
+  // Build the Kartverket URL (no encodeURIComponent on date params – proxies handle that)
+  const apiUrl = `https://api.sehavniva.no/tideapi.php?lat=${LAT}&lon=${LON}` +
+    `&fromtime=${fmtDt(from)}&totime=${fmtDt(to)}` +
     `&datatype=PRE&refcode=CD&lang=nb&interval=10&dst=1&tzone=1&tide_request=locationdata`;
 
-  // Try direct, then CORS proxy fallback
-  let xml;
-  try {
-    const r = await fetch(base);
-    xml = await r.text();
-    if (!xml.includes('<waterlevel')) throw new Error('empty');
-  } catch {
-    const r2 = await fetch('https://corsproxy.io/?' + encodeURIComponent(base));
-    xml = await r2.text();
+  // Try these options in sequence; first valid XML wins
+  const attempts = [
+    // 1. allorigins – reliable CORS proxy, returns raw content
+    () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`,
+                { signal: AbortSignal.timeout(8000) }).then(r => r.text()),
+    // 2. corsproxy.io
+    () => fetch(`https://corsproxy.io/?${encodeURIComponent(apiUrl)}`,
+                { signal: AbortSignal.timeout(8000) }).then(r => r.text()),
+    // 3. Direct (works if browser/server lifts CORS restriction)
+    () => fetch(apiUrl, { signal: AbortSignal.timeout(8000) }).then(r => r.text()),
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const xml = await attempt();
+      if (xml && xml.includes('<waterlevel')) return xml;
+    } catch (e) {
+      console.warn('Tide fetch attempt failed:', e.message);
+    }
   }
-  return xml;
+  throw new Error('Kunne ikke hente tidevannsdata fra Kartverket (alle proxier feilet)');
 }
 
 function parseTide(xml) {
@@ -883,7 +893,17 @@ async function loadAll() {
   const jobs = await Promise.allSettled([
     fetchWeather().then(d => { pendingWind = processWeather(d); }),
     fetchMarine().then(d  => { pendingWave = processMarine(d);  }),
-    fetchTide().then(xml  => { const {times,values}=parseTide(xml); renderTideChart(times,values); }),
+    fetchTide()
+      .then(xml => { const {times,values}=parseTide(xml); renderTideChart(times,values); })
+      .catch(err => {
+        console.warn('Tidevann feilet:', err.message);
+        document.getElementById('tide-events').innerHTML =
+          `<span style="color:var(--warning);font-size:0.82rem">
+            ⚠️ Tidevannsdata ikke tilgjengelig akkurat nå.
+            Se <a href="https://www.kartverket.no/sehavniva" target="_blank"
+                 style="color:var(--accent)">kartverket.no/sehavniva</a> for tidevann.
+          </span>`;
+      }),
     fetchSun(),
   ]);
 
